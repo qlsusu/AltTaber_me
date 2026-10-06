@@ -20,7 +20,7 @@ Windows 窗口切换工具，支持 Alt+Tab 切换应用、Alt+` 切换同应用
 
 1. 下载 [AltTaber_v1.0.zip](AltTaber_v1.0.zip) 并解压
 2. 运行 `AltTaber.exe`
-3. 使用 `Alt + Tab` 或 `Alt + `` 切换窗口
+3. 使用 Alt + Tab 或 Alt + ` 切换窗口
 
 ## 构建
 
