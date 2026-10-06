@@ -233,7 +233,70 @@ void Widget::keyPressEvent(QKeyEvent* event) {
                     // 使用 taskkill 杀掉进程
                     QString cmd = QString("taskkill /F /PID %1").arg(pid);
                     QProcess::execute("cmd", {"/c", cmd});
-                    hide();
+                    // 延迟刷新列表，等待进程完全结束
+                    QTimer::singleShot(100, this, [this]() {
+                        // 先隐藏 appWindowLw，避免显示旧的缩略图
+                        appWindowLw->hide();
+                        appWindowLw->clear();
+                        
+                        prepareListWidget();
+                        
+                        // 重新根据鼠标位置设置 currentItem
+                        auto mousePos = QCursor::pos();
+                        auto lwPos = lw->mapFromGlobal(mousePos);
+                        if (auto item = lw->itemAt(lwPos)) {
+                            lw->setCurrentItem(item);
+                            // 触发 itemEntered 信号以更新 appWindowLw
+                            // 由于 currentItem 已经改变，需要手动触发显示逻辑
+                            if (!windowModeActive) {
+                                auto group = item->data(Qt::UserRole).value<WindowGroup>();
+                                if (!group.windows.isEmpty()) {
+                                    // 重新填充 appWindowLw
+                                    appWindowLw->clear();
+                                    const int thumbW = 120;
+                                    const int thumbH = 68;
+                                    const int spacing = 6;
+                                    const int titleH = 35;
+                                    for (const auto& win : group.windows) {
+                                        auto* wi = new QListWidgetItem(appWindowLw);
+                                        wi->setData(Qt::UserRole, QVariant::fromValue(win));
+                                        auto thumb = Util::getWindowThumbnail(win.hwnd, QSize(thumbW, thumbH));
+                                        wi->setData(Qt::DecorationRole, QIcon(thumb));
+                                        wi->setSizeHint(QSize(thumbW + 16, thumbH + titleH + 16));
+                                        wi->setText(win.title);
+                                    }
+                                    appWindowLw->setViewMode(QListView::IconMode);
+                                    appWindowLw->setWrapping(false);
+                                    appWindowLw->setFlow(QListView::LeftToRight);
+                                    appWindowLw->setUniformItemSizes(true);
+                                    appWindowLw->setGridSize(QSize(thumbW + spacing + 16, thumbH + titleH + 16));
+                                    appWindowLw->setIconSize(QSize(thumbW, thumbH));
+                                    auto count = appWindowLw->count();
+                                    const int pad = 8;
+                                    auto lwW = count * (thumbW + spacing + 16) + pad * 2;
+                                    auto lwH = thumbH + titleH + 16 + pad * 2;
+                                    appWindowLw->setFixedSize(lwW, lwH);
+                                    appWindowLw->setStyleSheet(QString("QListWidget { background-color: transparent; border: none; outline: none; padding: %1px; }").arg(pad));
+                                    
+                                    // 定位：在对应 app 图标下方
+                                    auto itemRect = lw->visualItemRect(item);
+                                    auto globalCenter = lw->mapToGlobal(itemRect.center() + QPoint(0, itemRect.height() / 2));
+                                    int x = globalCenter.x() - lwW / 2;
+                                    int y = globalCenter.y() + 40;
+                                    appWindowLw->move(x, y);
+                                    appWindowLw->show();
+                                    appWindowLw->raise();
+                                    appWindowLwHideTimer->stop();
+                                }
+                            }
+                        } else {
+                            lw->setCurrentItem(nullptr);
+                        }
+                        
+                        // 强制刷新视图
+                        lw->viewport()->update();
+                        lw->viewport()->repaint();
+                    });
                 }
             }
         }
@@ -425,10 +488,67 @@ void Widget::notifyForegroundChanged(HWND hwnd, ForegroundChangeSource source) {
 QList<WindowGroup> Widget::prepareWindowGroupList() {
     QMap<QString, WindowGroup> winGroupMap;
     const auto list = Util::listValidWindows();
+    
+    // 调试日志
+    QFile logFile("D:/tool/AltTaber_me/debug.log");
+    if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream log(&logFile);
+        log << "=== prepareWindowGroupList ===\n";
+        log << "Total windows from listValidWindows: " << list.size() << "\n";
+        for (auto hwnd: list) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            auto path = Util::getWindowProcessPath(hwnd);
+            auto title = Util::getWindowTitle(hwnd);
+            log << "  hwnd=" << (quintptr)hwnd << " pid=" << pid << " path=" << path.left(50) << " title=" << title.left(30) << "\n";
+        }
+    }
+    
     for (auto hwnd: list) {
         if (hwnd == this->hWnd()) continue; // skip self
+        if (!::IsWindow(hwnd)) {
+            QFile logFile("D:/tool/AltTaber_me/debug.log");
+            if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream log(&logFile);
+                log << "  Skipped invalid hwnd: " << (quintptr)hwnd << "\n";
+            }
+            continue;
+        }
+        
+        // 检查进程是否还活着
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        if (pid == 0) {
+            QFile logFile("D:/tool/AltTaber_me/debug.log");
+            if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream log(&logFile);
+                log << "  Skipped hwnd with no PID: " << (quintptr)hwnd << "\n";
+            }
+            continue;
+        }
+        
+        // 尝试打开进程句柄，检查是否可访问
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!hProcess) {
+            QFile logFile("D:/tool/AltTaber_me/debug.log");
+            if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream log(&logFile);
+                log << "  Skipped hwnd with inaccessible process: " << (quintptr)hwnd << " PID=" << pid << "\n";
+            }
+            continue;
+        }
+        CloseHandle(hProcess);
+        
         auto path = Util::getWindowProcessPath(hwnd);
-        if (path.isEmpty()) continue; // TODO 可能需要管理员权限
+        if (path.isEmpty()) {
+            QFile logFile("D:/tool/AltTaber_me/debug.log");
+            if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream log(&logFile);
+                log << "  Skipped hwnd with empty path: " << (quintptr)hwnd << "\n";
+            }
+            continue; // TODO 可能需要管理员权限
+        }
+        
         auto& winGroup = winGroupMap[path];
         if (winGroup.exePath.isEmpty()) { // QIcon::isNull 判断可能不太准（例如空图标）
             winGroup.exePath = path;
@@ -444,6 +564,22 @@ QList<WindowGroup> Widget::prepareWindowGroupList() {
         winGroup.addWindow({Util::getWindowTitle(hwnd), Util::getClassName(hwnd), hwnd});
     }
     auto winGroupList = winGroupMap.values();
+    
+    // 调试日志：显示最终保留的窗口组
+    {
+        QFile logFile("D:/tool/AltTaber_me/debug.log");
+        if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+            QTextStream log(&logFile);
+            log << "Final window groups: " << winGroupList.size() << "\n";
+            for (const auto& group : winGroupList) {
+                log << "  path=" << group.exePath.left(50) << " windows=" << group.windows.size() << "\n";
+                for (const auto& win : group.windows) {
+                    log << "    title=" << win.title.left(30) << " hwnd=" << (quintptr)win.hwnd << "\n";
+                }
+            }
+        }
+    }
+    
     // 按照活跃度排序
     std::sort(winGroupList.begin(), winGroupList.end(), [this](const WindowGroup& a, const WindowGroup& b) {
         auto timeA = getLastValidActiveGroupWindow(a).second;
@@ -465,6 +601,13 @@ bool Widget::prepareListWidget() {
 //        item->setFlags(item->flags() & ~Qt::ItemIsSelectable); // 不可选中
         lw->addItem(item);
     }
+    // 强制刷新视图和 delegate
+    lw->viewport()->update();
+    lw->update();
+    // 强制重新布局
+    lw->doItemsLayout();
+    // 强制重新绘制
+    lw->repaint();
 
     // calculate Geometry
     if (auto firstItem = lw->item(0)) {
