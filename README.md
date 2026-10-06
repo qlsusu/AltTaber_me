@@ -31,6 +31,10 @@ cmake -B build -G "Visual Studio 17 2022"
 cmake --build build --config Release
 ```
 
+## 引用
+
+本项目基于 [AltTaber](https://github.com/qlsusu/AltTaber) 项目修改。
+
 ## 许可证
 
 MIT
