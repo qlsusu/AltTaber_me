@@ -2,6 +2,10 @@
 
 Windows 窗口切换工具，支持 Alt+Tab 切换应用、Alt+` 切换同应用窗口，均带缩略图预览。
 
+## 演示
+
+<video src="https://github.com/qlsusu/AltTaber_me/raw/main/demo.mp4" controls></video>
+
 ## 功能
 
 - **Alt + Tab**：在应用之间切换，显示缩略图
