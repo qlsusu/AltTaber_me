@@ -220,6 +220,24 @@ void Widget::keyPressEvent(QKeyEvent* event) {
         // 进入窗口切换模式，显示覆盖层
         showWindowSwitcherOverlay();
         return;
+    } else if (key == Qt::Key_Q && (modifiers & Qt::AltModifier)) { // Alt + Q, 杀掉鼠标所在的 app 进程
+        // 获取鼠标位置对应的 item
+        auto mousePos = QCursor::pos();
+        auto lwPos = lw->mapFromGlobal(mousePos);
+        if (auto item = lw->itemAt(lwPos)) {
+            if (auto group = item->data(Qt::UserRole).value<WindowGroup>(); !group.windows.empty()) {
+                // 获取进程 ID
+                DWORD pid = 0;
+                GetWindowThreadProcessId(group.windows.first().hwnd, &pid);
+                if (pid != 0) {
+                    // 使用 taskkill 杀掉进程
+                    QString cmd = QString("taskkill /F /PID %1").arg(pid);
+                    QProcess::execute("cmd", {"/c", cmd});
+                    hide();
+                }
+            }
+        }
+        return;
     } else if (key == Qt::Key_Up || key == Qt::Key_Down) {
         if (auto item = lw->currentItem()) {
             auto center = lw->visualItemRect(item).center();
@@ -590,6 +608,15 @@ bool Widget::eventFilter(QObject* watched, QEvent* event) {
         }
         return false;
     }
+    if (watched == lw && event->type() == QEvent::MouseMove) {
+        // 鼠标在 lw 上移动时，更新当前选中的 item
+        auto* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (auto item = lw->itemAt(mouseEvent->position().toPoint())) {
+            if (lw->currentItem() != item)
+                lw->setCurrentItem(item);
+        }
+        return false;
+    }
     if (watched == lw && event->type() == QEvent::MouseButtonRelease) {
         if (windowModeActive) {
             // 窗口切换模式：鼠标点击直接切换窗口
@@ -957,13 +984,20 @@ void Widget::showWindowSwitcherOverlay() {
         
     }
     
-    // 选择当前前台窗口
+    // 选择当前前台窗口的下一个窗口（而不是当前窗口）
     windowSelectedIndex = 0;
+    int currentIdx = -1;
     for (int i = 0; i < windowList.size(); i++) {
         if (windowList[i].hwnd == foreWin) {
-            windowSelectedIndex = i;
+            currentIdx = i;
             break;
         }
+    }
+    // 如果有多个窗口，选中下一个；否则选中第一个
+    if (currentIdx >= 0 && windowList.size() > 1) {
+        windowSelectedIndex = (currentIdx + 1) % windowList.size();
+    } else if (currentIdx >= 0) {
+        windowSelectedIndex = currentIdx;
     }
     lw->setCurrentRow(windowSelectedIndex);
     
