@@ -6,6 +6,10 @@ Windows 窗口切换工具，支持 Alt+Tab 切换应用、Alt+` 切换同应用
 
 [查看演示视频](https://github.com/qlsusu/AltTaber_me/raw/main/demo.mp4)
 
+| Alt+Tab 切换应用 | Alt+` 切换窗口 |
+|:---:|:---:|
+| ![Alt+Tab](demo1.png) | ![Alt+`](demo2.png) |
+
 ## 功能
 
 - **Alt + Tab**：在应用之间切换，显示缩略图
