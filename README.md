@@ -1,4 +1,4 @@
-# AltTaber
+# AltTaber_me
 
 Windows 窗口切换工具，支持 Alt+Tab 切换应用、Alt+` 切换同应用窗口，均带缩略图预览。
 
